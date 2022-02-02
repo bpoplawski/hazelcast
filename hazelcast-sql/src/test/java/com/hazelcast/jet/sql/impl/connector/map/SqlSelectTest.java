@@ -19,6 +19,8 @@ package com.hazelcast.jet.sql.impl.connector.map;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.sql.SqlTestSupport;
 import com.hazelcast.map.IMap;
+import com.hazelcast.sql.SqlResult;
+import com.hazelcast.sql.SqlRow;
 import com.hazelcast.test.annotation.ParallelJVMTest;
 import com.hazelcast.test.annotation.QuickTest;
 import org.junit.BeforeClass;
@@ -63,6 +65,23 @@ public class SqlSelectTest extends SqlTestSupport {
         List<Row> rows = fillIMapAndGetData(map, 20);
 
         assertRowsAnyOrder("SELECT * FROM " + name, rows);
+    }
+
+    @Test
+    public void test_basicSelectSingleRow() {
+        HazelcastInstance hazelcastInstance = instance();
+        String mapName = "mapName";
+        createMapping(mapName, int.class, String.class);
+
+        IMap<Integer, String> map = hazelcastInstance.getMap("mapName");
+        map.put(1, "Ala");
+        map.put(2, "Kot");
+
+        SqlResult result = hazelcastInstance.getSql().execute("SELECT * FROM " + mapName);
+        for (SqlRow sqlRow: result) {
+            System.out.println( (int) sqlRow.getObject(0));
+            System.out.println( (String) sqlRow.getObject(1));
+        }
     }
 
     @Test
