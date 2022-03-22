@@ -16,6 +16,7 @@
 
 package com.hazelcast.jet.sql.impl.connector.kafka;
 
+import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.kafka.impl.KafkaTestSupport;
 import com.hazelcast.jet.sql.SqlTestSupport;
 import com.hazelcast.sql.SqlService;
@@ -44,6 +45,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     private static SqlService sqlService;
 
+
     @BeforeClass
     public static void setUpClass() throws IOException {
         initialize(1, null);
@@ -58,7 +60,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         kafkaTestSupport.shutdownKafkaCluster();
     }
 
-    @Test
+    @Test(timeout=900000)
     public void test_tumble() {
         String name = createRandomTopic();
         sqlService.execute("CREATE MAPPING " + name + ' '
@@ -73,8 +75,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         sqlService.execute("INSERT INTO " + name + " VALUES" +
                 "(0, 'value-0')" +
                 ", (1, 'value-1')" +
-                ", (2, 'value-2')" +
-                ", (10, 'value-10')"
+                ", (2, 'value-2')"
         );
 
         assertTipOfStream(
@@ -126,7 +127,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
     }
 
     private static String createRandomTopic() {
-        String topicName = randomName();
+        String topicName = "topic1";
         kafkaTestSupport.createTopic(topicName, INITIAL_PARTITION_COUNT);
         return topicName;
     }
