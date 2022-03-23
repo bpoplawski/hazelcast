@@ -46,7 +46,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     @BeforeClass
     public static void setUpClass() throws IOException {
-        initialize(1, null);
+        initialize(2, null);
         sqlService = instance().getSql();
 
         kafkaTestSupport = new KafkaTestSupport();
@@ -58,7 +58,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         kafkaTestSupport.shutdownKafkaCluster();
     }
 
-    @Test
+    @Test(timeout = 900000)
     public void test_tumble() {
         String name = createRandomTopic();
         sqlService.execute("CREATE MAPPING " + name + ' '
@@ -73,8 +73,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         sqlService.execute("INSERT INTO " + name + " VALUES" +
                 "(0, 'value-0')" +
                 ", (1, 'value-1')" +
-                ", (2, 'value-2')" +
-                ", (10, 'value-10')"
+                ", (2, 'value-2')"
         );
 
         assertTipOfStream(
@@ -126,7 +125,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
     }
 
     private static String createRandomTopic() {
-        String topicName = randomName();
+        String topicName = "topic1";
         kafkaTestSupport.createTopic(topicName, INITIAL_PARTITION_COUNT);
         return topicName;
     }

@@ -212,37 +212,86 @@ public abstract class SqlTestSupport extends SimpleTestInClusterSupport {
     public static void assertTipOfStream(String sql, Collection<Row> expectedRows) {
         assert !expectedRows.isEmpty() : "no point in asserting a zero-length tip of a stream";
         SqlService sqlService = instance().getSql();
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        Deque<Row> rows = new ArrayDeque<>();
 
-        Thread thread = new Thread(() -> {
+        SqlService sqlService1 = factory().newHazelcastClient().getSql();
+        SqlService sqlService2 = factory().newHazelcastClient().getSql();
+
+        CompletableFuture<Void> future1 = new CompletableFuture<>();
+        CompletableFuture<Void> future2 = new CompletableFuture<>();
+
+        Deque<Row> rows1 = new ArrayDeque<>();
+        Deque<Row> rows2 = new ArrayDeque<>();
+
+        Thread thread1 = new Thread(() -> {
             SqlStatement statement = new SqlStatement(sql);
-            try (SqlResult result = sqlService.execute(statement)) {
+            try (SqlResult result = sqlService1.execute(statement)) {
                 Iterator<SqlRow> iterator = result.iterator();
                 for (int i = 0; i < expectedRows.size() && iterator.hasNext(); i++) {
-                    rows.add(new Row(iterator.next()));
+                    rows1.add(new Row(iterator.next()));
                 }
-                future.complete(null);
+                future1.complete(null);
             } catch (Throwable e) {
                 e.printStackTrace();
-                future.completeExceptionally(e);
+                future1.completeExceptionally(e);
             }
         });
 
-        thread.start();
+        Thread thread2 = new Thread(() -> {
+            SqlStatement statement = new SqlStatement(sql);
+            try (SqlResult result = sqlService2.execute(statement)) {
+                Iterator<SqlRow> iterator = result.iterator();
+                for (int i = 0; i < expectedRows.size() && iterator.hasNext(); i++) {
+                    rows2.add(new Row(iterator.next()));
+                }
+                future2.complete(null);
+            } catch (Throwable e) {
+                e.printStackTrace();
+                future2.completeExceptionally(e);
+            }
+        });
+
+        thread1.start();
+        thread2.start();
+
+        // Wait a configurable amount of time
+        // test-pass below 60s, fail if more
+
+        try {
+            Thread.sleep(3 * 60000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        sqlService.execute("INSERT INTO " + "topic1" + " VALUES" +
+                "(10, 'value-10')"
+        );
 
         try {
             try {
-                future.get(10, TimeUnit.SECONDS);
+                future1.get(10, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
-                thread.interrupt();
-                thread.join();
+                thread1.interrupt();
+                thread1.join();
             }
         } catch (Exception e) {
             throw sneakyThrow(e);
         }
 
-        List<Row> actualRows = new ArrayList<>(rows);
+        List<Row> actualRows = new ArrayList<>(rows1);
+        assertThat(actualRows).containsExactlyElementsOf(expectedRows);
+
+        try {
+            try {
+                future2.get(10, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                thread2.interrupt();
+                thread2.join();
+            }
+        } catch (Exception e) {
+            throw sneakyThrow(e);
+        }
+
+        actualRows = new ArrayList<>(rows2);
         assertThat(actualRows).containsExactlyElementsOf(expectedRows);
     }
 
