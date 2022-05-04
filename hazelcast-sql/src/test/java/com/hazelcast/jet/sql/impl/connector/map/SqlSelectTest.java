@@ -25,6 +25,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -66,6 +68,31 @@ public class SqlSelectTest extends SqlTestSupport {
     }
 
     @Test
+    public void test_runQueriesForEachOf1kMappingsExists() {
+        int count = 1000;
+        List<String> mappingNames = new ArrayList<>();
+        List<Row> rows = null;
+
+        HazelcastInstance hazelcastInstance = instance();
+
+        for (int i = 0; i <= count; i++) {
+            mappingNames.add(randomName() + "_" + i);
+            createMapping(mappingNames.get(i), int.class, String.class);
+
+            IMap<Integer, String> map = hazelcastInstance.getMap(mappingNames.get(i));
+            rows = fillIMapAndGetData(map, 20);
+        }
+
+        for (int i = 0; i <= count; i++) {
+            Instant start = Instant.now();
+            hazelcastInstance.getSql().execute("SELECT * FROM " + mappingNames.get(i));
+            Instant finish = Instant.now();
+            long timeElapsed = Duration.between(start, finish).toMillis();
+            System.out.println("The select query time is " + timeElapsed);
+        }
+    }
+
+    @Test
     public void test_selectWithEqFilter() {
         HazelcastInstance hazelcastInstance = instance();
         String name = randomName();
@@ -76,6 +103,32 @@ public class SqlSelectTest extends SqlTestSupport {
         List<Row> filteredRows = singletonList(new Row(5, "F"));
 
         assertRowsAnyOrder("SELECT * FROM " + name + " AS I WHERE I.__key = 5", filteredRows);
+    }
+
+
+    @Test
+    public void test_runQueriesForEachOf1kMappingsExistsWithFilteredRows() {
+        int count = 1000;
+        List<String> mappingNames = new ArrayList<>();
+        List<Row> filteredRows = singletonList(new Row(5, "F"));
+
+        HazelcastInstance hazelcastInstance = instance();
+
+        for (int i = 0; i <= count; i++) {
+            mappingNames.add(randomName() + "_" + i);
+            createMapping(mappingNames.get(i), int.class, String.class);
+
+            IMap<Integer, String> map = hazelcastInstance.getMap(mappingNames.get(i));
+            fillIMapAndGetData(map, 20);
+        }
+
+        for (int i = 0; i <= count; i++) {
+            Instant start = Instant.now();
+            hazelcastInstance.getSql().execute("SELECT * FROM " + mappingNames.get(i) +  " AS I WHERE I.__key = 5");
+            Instant finish = Instant.now();
+            long timeElapsed = Duration.between(start, finish).toMillis();
+            System.out.println("The select eq filter query time is " + timeElapsed);
+        }
     }
 
     @Test
