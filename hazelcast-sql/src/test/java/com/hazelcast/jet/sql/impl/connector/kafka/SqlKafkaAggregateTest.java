@@ -16,8 +16,11 @@
 
 package com.hazelcast.jet.sql.impl.connector.kafka;
 
+import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.kafka.impl.KafkaTestSupport;
 import com.hazelcast.jet.sql.SqlTestSupport;
+import com.hazelcast.sql.SqlResult;
+import com.hazelcast.sql.SqlRow;
 import com.hazelcast.sql.SqlService;
 import com.hazelcast.test.HazelcastSerialClassRunner;
 import com.hazelcast.test.annotation.ParallelJVMTest;
@@ -29,6 +32,9 @@ import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
 
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_KEY_FORMAT;
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_VALUE_FORMAT;
@@ -90,6 +96,48 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                         new Row(2, 4, 1L)
                 )
         );
+    }
+
+    @Test
+    public void test_tumble_soak()  {
+
+        String name = "trades";
+        sqlService.execute("CREATE MAPPING " + name + ' '
+                + "TYPE " + KafkaSqlConnector.TYPE_NAME + ' '
+                + "OPTIONS ( "
+                + '\'' + OPTION_KEY_FORMAT + "'='int'"
+                + ", '" + OPTION_VALUE_FORMAT + "'='varchar'"
+                + ", 'bootstrap.servers'='" + kafkaTestSupport.getBrokerConnectionString() + '\''
+                + ", 'auto.offset.reset'='earliest'"
+                + ")"
+        );
+
+        sqlService.execute("INSERT INTO " + " trades " + " VALUES" +
+                "(0, 'value-0')" +
+                ", (1, 'value-1')" +
+                ", (2, 'value-2')" +
+                ", (10, 'value-10')"
+        );
+
+        String jobFromSourceToString =
+                " SELECT window_start, window_end, COUNT(*) FROM " +
+                        "TABLE(TUMBLE(" +
+                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE trades, DESCRIPTOR(__key), 2)))" +
+                        "  , DESCRIPTOR(__key)" +
+                        "  , 2" +
+                        ")) " +
+                        "GROUP BY window_start, window_end";
+
+        try (SqlResult result = sqlService.execute(jobFromSourceToString)) {
+            Iterator<SqlRow> iterator = result.iterator();
+            Deque<Row> rows = new ArrayDeque<>();
+            for (int i = 0; i < 2 && iterator.hasNext(); i++) {
+                rows.add(new Row(iterator.next()));
+            }
+        }
+
+
+
     }
 
     @Test
