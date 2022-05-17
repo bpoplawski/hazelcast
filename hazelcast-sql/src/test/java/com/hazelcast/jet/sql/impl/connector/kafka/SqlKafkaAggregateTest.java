@@ -66,7 +66,8 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     @Test
     public void test_tumble() {
-        String name = createRandomTopic();
+        String name = "topic1";
+
         sqlService.execute("CREATE MAPPING " + name + ' '
                 + "TYPE " + KafkaSqlConnector.TYPE_NAME + ' '
                 + "OPTIONS ( "
@@ -80,7 +81,12 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 "(0, 'value-0')" +
                 ", (1, 'value-1')" +
                 ", (2, 'value-2')" +
-                ", (10, 'value-10')"
+                ", (3, 'value-2')" +
+                ", (4, 'value-2')" +
+                ", (5, 'value-2')" +
+                ", (8, 'value-2')" +
+                ", (3, 'value-2')"
+                //  ", (10, 'value-10')"
         );
 
         assertTipOfStream(
@@ -88,12 +94,12 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                         "TABLE(TUMBLE(" +
                         "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(__key), 2)))" +
                         "  , DESCRIPTOR(__key)" +
-                        "  , 2" +
+                        "  , 5" +
                         ")) " +
                         "GROUP BY window_start, window_end",
                 asList(
-                        new Row(0, 2, 2L),
-                        new Row(2, 4, 1L)
+                        new Row(0, 5, 5L)
+
                 )
         );
     }
