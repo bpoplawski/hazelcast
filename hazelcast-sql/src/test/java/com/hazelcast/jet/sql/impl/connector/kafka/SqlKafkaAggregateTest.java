@@ -16,7 +16,6 @@
 
 package com.hazelcast.jet.sql.impl.connector.kafka;
 
-import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.kafka.impl.KafkaTestSupport;
 import com.hazelcast.jet.sql.SqlTestSupport;
 import com.hazelcast.sql.SqlResult;
@@ -80,37 +79,27 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ", 'bootstrap.servers'='" + kafkaTestSupport.getBrokerConnectionString() + '\''
                 + ", 'auto.offset.reset'='earliest'"
                 + ")"
-                );
-
-        sqlService.execute("INSERT INTO " + name + " VALUES" +
-                "(0, 'value-0', 0)" +
-                ", (1, 'value-1', 1)" +
-                ", (2, 'value-2', 2)" +
-                ", (3, 'value-3', 3)" +
-                ", (4, 'value-4', 4)" +
-                ", (5, 'value-5', 5)" +
-                ", (8, 'value-6', 8)" +
-                ", (3, 'value-7', 3)"
-                //  ", (10, 'value-10')"
         );
+
+        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(0, 10, 1, 2));
 
         assertTipOfStream(
                 "SELECT window_start, window_end, COUNT(*) FROM " +
                         "TABLE(TUMBLE(" +
                         "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
                         "  , DESCRIPTOR(tick)" +
-                        "  , 5" +
+                        "  , 10" +
                         ")) " +
                         "GROUP BY window_start, window_end",
                 asList(
-                        new Row(0, 5, 5L)
+                        new Row(0, 10, 10L)
 
                 )
         );
     }
 
     @Test
-    public void test_tumble_soak()  {
+    public void test_tumble_soak() {
 
         String name = "trades";
         sqlService.execute("CREATE MAPPING " + name + ' '
@@ -146,7 +135,6 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 rows.add(new Row(iterator.next()));
             }
         }
-
 
 
     }
