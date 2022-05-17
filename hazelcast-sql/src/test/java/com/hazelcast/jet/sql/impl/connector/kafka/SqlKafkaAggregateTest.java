@@ -67,33 +67,38 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
     @Test
     public void test_tumble() {
         String name = "topic1";
+// kafkaTestSupport.getBrokerConnectionString()
 
-        sqlService.execute("CREATE MAPPING " + name + ' '
+        sqlService.execute("CREATE MAPPING " + name + " ("
+                + "tick INT,"
+                + "ticker VARCHAR,"
+                + "price DECIMAL" + ") "
                 + "TYPE " + KafkaSqlConnector.TYPE_NAME + ' '
                 + "OPTIONS ( "
                 + '\'' + OPTION_KEY_FORMAT + "'='int'"
-                + ", '" + OPTION_VALUE_FORMAT + "'='varchar'"
+                + ", '" + OPTION_VALUE_FORMAT + "'='json-flat'"
                 + ", 'bootstrap.servers'='" + kafkaTestSupport.getBrokerConnectionString() + '\''
                 + ", 'auto.offset.reset'='earliest'"
                 + ")"
-        );
+                );
+
         sqlService.execute("INSERT INTO " + name + " VALUES" +
-                "(0, 'value-0')" +
-                ", (1, 'value-1')" +
-                ", (2, 'value-2')" +
-                ", (3, 'value-2')" +
-                ", (4, 'value-2')" +
-                ", (5, 'value-2')" +
-                ", (8, 'value-2')" +
-                ", (3, 'value-2')"
+                "(0, 'value-0', 0)" +
+                ", (1, 'value-1', 1)" +
+                ", (2, 'value-2', 2)" +
+                ", (3, 'value-3', 3)" +
+                ", (4, 'value-4', 4)" +
+                ", (5, 'value-5', 5)" +
+                ", (8, 'value-6', 8)" +
+                ", (3, 'value-7', 3)"
                 //  ", (10, 'value-10')"
         );
 
         assertTipOfStream(
                 "SELECT window_start, window_end, COUNT(*) FROM " +
                         "TABLE(TUMBLE(" +
-                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(__key), 2)))" +
-                        "  , DESCRIPTOR(__key)" +
+                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
+                        "  , DESCRIPTOR(tick)" +
                         "  , 5" +
                         ")) " +
                         "GROUP BY window_start, window_end",
