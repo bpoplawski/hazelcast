@@ -18,6 +18,7 @@ package com.hazelcast.jet.sql.impl.connector.kafka;
 
 import com.hazelcast.jet.kafka.impl.KafkaTestSupport;
 import com.hazelcast.jet.sql.SqlTestSupport;
+import com.hazelcast.jet.sql.impl.connector.map.IMapSqlConnector;
 import com.hazelcast.sql.SqlResult;
 import com.hazelcast.sql.SqlRow;
 import com.hazelcast.sql.SqlService;
@@ -31,9 +32,7 @@ import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
+import java.util.*;
 
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_KEY_FORMAT;
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_VALUE_FORMAT;
@@ -71,9 +70,8 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     @Test
     public void test_tumble() throws InterruptedException {
-        String name = "topic1";
-
-        sqlService.execute("CREATE MAPPING " + name + " ("
+        String name = "trades";
+        sqlService.execute("CREATE OR REPLACE MAPPING " + name + " ("
                 + "tick INT,"
                 + "ticker VARCHAR,"
                 + "price DECIMAL" + ") "
@@ -86,42 +84,61 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ")"
         );
 
+        String name2 = "tradesink";
+        sqlService.execute("CREATE OR REPLACE MAPPING " + name2 + " ("
+                + "__key INT,"
+                + "windowsend INT,"
+                + "countsc INT"
+                + ") "
+                + "TYPE " + IMapSqlConnector.TYPE_NAME + ' '
+                + "OPTIONS ( "
+                + '\'' + OPTION_KEY_FORMAT + "'='int'"
+                + ", '" + OPTION_VALUE_FORMAT + "'='json-flat'"
+                + ")"
+        );
+
+        sqlService.execute("INSERT INTO " + name + " VALUES" +
+                TradeRecordProducer.produceTradeRecords(0, 0 + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
+
+        String jobFromSourceToString = "CREATE JOB myJob AS SINK INTO tradesink " +
+                "SELECT window_start, window_end, COUNT(*) FROM " +
+                "TABLE(TUMBLE(" +
+                "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
+                "  , DESCRIPTOR(tick)" +
+                //  "  , 10" +
+                " ," + EVENT_WINDOW_COUNT +
+                ")) " +
+                "GROUP BY window_start, window_end";
+
+
+        sqlService.execute(jobFromSourceToString);
+        Thread.sleep(5000);
+
         int currentEventStartTime = EVENT_START_TIME;
-        long durationInMillis = 100000;
+        long durationInMillis = 20000;
 
         // while loop with intervals
         begin = System.currentTimeMillis();
         List<Row> listOfExpectedRows = new ArrayList<>();
 
-        boolean isOdd=true;
+        Deque<Row> rows = new ArrayDeque<>();
 
         while (System.currentTimeMillis() - begin < durationInMillis) {
 
+            currentEventStartTime = currentEventStartTime + EVENT_WINDOW_COUNT;
             sqlService.execute("INSERT INTO " + name + " VALUES" +
                     TradeRecordProducer.produceTradeRecords(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
 
-            // check that data are correct
-            String jobFromSourceToString =
-                    "SELECT window_start, window_end, COUNT(*) FROM " +
-                            "TABLE(TUMBLE(" +
-                            "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
-                            "  , DESCRIPTOR(tick)" +
-                            //  "  , 10" +
-                            " ," + EVENT_WINDOW_COUNT +
-                            ")) " +
-                            "GROUP BY window_start, window_end";
-
-            // need to assert this data
-            long expectedCount = (isOdd) ? 10 : 11;
-            listOfExpectedRows.add(new Row(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, expectedCount));
-
-            assertTipOfStream(jobFromSourceToString, listOfExpectedRows);
-            currentEventStartTime = currentEventStartTime + EVENT_WINDOW_COUNT;
-
-            Thread.sleep(2000);
-
-            isOdd = !isOdd;
+            Thread.sleep(5000);
         }
+
+        try (SqlResult result = sqlService.execute("SELECT * FROM tradesink WHERE true;")) {
+            Iterator<SqlRow> iterator = result.iterator();
+            for (int i = 0; i < 10 && iterator.hasNext(); i++) {
+                rows.add(new Row(iterator.next()));
+            }
+        }
+        System.out.println("The rows are" + rows);
     }
 
     @Test
