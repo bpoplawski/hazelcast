@@ -95,7 +95,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 )
         );
 
-        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(11, 10, 1, 2));
+        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(10, 10, 1, 2));
         Thread.sleep(10000);
 
         assertTipOfStream(
@@ -108,11 +108,11 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                         "GROUP BY window_start, window_end",
                 asList(
                         new Row(0, 10, 10L),
-                        new Row(10, 20, 10L)
+                        new Row(10, 20, 11L)
                 )
         );
 
-        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(22, 10, 1, 2));
+        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(20, 10, 1, 2));
         Thread.sleep(10000);
 
         assertTipOfStream(
@@ -125,8 +125,8 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                         "GROUP BY window_start, window_end",
                 asList(
                         new Row(0, 10, 10L),
-                        new Row(10, 20, 10L),
-                        new Row(20, 30, 10L)
+                        new Row(10, 20, 11L),
+                        new Row(20, 30, 11L)
                 )
         );
     }
