@@ -64,9 +64,8 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
     }
 
     @Test
-    public void test_tumble() {
+    public void test_tumble() throws InterruptedException {
         String name = "topic1";
-// kafkaTestSupport.getBrokerConnectionString()
 
         sqlService.execute("CREATE MAPPING " + name + " ("
                 + "tick INT,"
@@ -93,50 +92,43 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                         "GROUP BY window_start, window_end",
                 asList(
                         new Row(0, 10, 10L)
-
                 )
         );
-    }
 
-    @Test
-    public void test_tumble_soak() {
+        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(11, 10, 1, 2));
+        Thread.sleep(10000);
 
-        String name = "trades";
-        sqlService.execute("CREATE MAPPING " + name + ' '
-                + "TYPE " + KafkaSqlConnector.TYPE_NAME + ' '
-                + "OPTIONS ( "
-                + '\'' + OPTION_KEY_FORMAT + "'='int'"
-                + ", '" + OPTION_VALUE_FORMAT + "'='varchar'"
-                + ", 'bootstrap.servers'='" + kafkaTestSupport.getBrokerConnectionString() + '\''
-                + ", 'auto.offset.reset'='earliest'"
-                + ")"
-        );
-
-        sqlService.execute("INSERT INTO " + " trades " + " VALUES" +
-                "(0, 'value-0')" +
-                ", (1, 'value-1')" +
-                ", (2, 'value-2')" +
-                ", (10, 'value-10')"
-        );
-
-        String jobFromSourceToString =
-                " SELECT window_start, window_end, COUNT(*) FROM " +
+        assertTipOfStream(
+                "SELECT window_start, window_end, COUNT(*) FROM " +
                         "TABLE(TUMBLE(" +
-                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE trades, DESCRIPTOR(__key), 2)))" +
-                        "  , DESCRIPTOR(__key)" +
-                        "  , 2" +
+                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
+                        "  , DESCRIPTOR(tick)" +
+                        "  , 10" +
                         ")) " +
-                        "GROUP BY window_start, window_end";
+                        "GROUP BY window_start, window_end",
+                asList(
+                        new Row(0, 10, 10L),
+                        new Row(10, 20, 10L)
+                )
+        );
 
-        try (SqlResult result = sqlService.execute(jobFromSourceToString)) {
-            Iterator<SqlRow> iterator = result.iterator();
-            Deque<Row> rows = new ArrayDeque<>();
-            for (int i = 0; i < 2 && iterator.hasNext(); i++) {
-                rows.add(new Row(iterator.next()));
-            }
-        }
+        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(22, 10, 1, 2));
+        Thread.sleep(10000);
 
-
+        assertTipOfStream(
+                "SELECT window_start, window_end, COUNT(*) FROM " +
+                        "TABLE(TUMBLE(" +
+                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
+                        "  , DESCRIPTOR(tick)" +
+                        "  , 10" +
+                        ")) " +
+                        "GROUP BY window_start, window_end",
+                asList(
+                        new Row(0, 10, 10L),
+                        new Row(10, 20, 10L),
+                        new Row(20, 30, 10L)
+                )
+        );
     }
 
     @Test

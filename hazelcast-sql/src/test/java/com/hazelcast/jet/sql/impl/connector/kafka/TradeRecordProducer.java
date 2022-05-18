@@ -33,16 +33,16 @@ public class TradeRecordProducer {
     public static String produceTradeRecords(int startTime, int count, int timeInterval, int lagTime) {
         StringBuilder sb = new StringBuilder();
 
-        for (int i = startTime; i < count; i = i + timeInterval) {
+        for (int i = startTime; i < startTime + count; i = i + timeInterval) {
             createSingleRecord(sb, i).append(",");
         }
 
         // next append evicting event
-        int j = count + lagTime;
+        int j = startTime + count + lagTime;
         createSingleRecord(sb, j).append(",");
 
         // append late event
-        int k = count - 2 * lagTime;
+        int k = j - 2*lagTime;
         createSingleRecord(sb, k);
 
         return sb.toString();
@@ -62,5 +62,17 @@ public class TradeRecordProducer {
         String result = produceTradeRecords(0, 10, 1, 2);
         System.out.println(result);
         }
+
+    @Test
+    public void checkQueryString2()  {
+        String result = produceTradeRecords(10, 10, 1, 2);
+        System.out.println(result);
+    }
+
+    @Test
+    public void checkQueryString3()  {
+        String result = produceTradeRecords(20, 10, 1, 2);
+        System.out.println(result);
+    }
 
 }
