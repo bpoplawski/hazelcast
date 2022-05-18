@@ -31,9 +31,9 @@ import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.List;
+
 
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_KEY_FORMAT;
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_VALUE_FORMAT;
@@ -44,8 +44,14 @@ import static java.util.Arrays.asList;
 public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     private static final int INITIAL_PARTITION_COUNT = 1;
-
     private static KafkaTestSupport kafkaTestSupport;
+
+    private final static int EVENT_START_TIME = 0;
+    private final static int EVENT_WINDOW_COUNT = 10;
+    private final static int EVENT_TIME_INTERVAL = 1;
+    private final static int LAG_TIME = 2;
+
+    private long begin;
 
     private static SqlService sqlService;
 
@@ -80,55 +86,42 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ")"
         );
 
-        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(0, 10, 1, 2));
+        int currentEventStartTime = EVENT_START_TIME;
+        long durationInMillis = 100000;
 
-        assertTipOfStream(
-                "SELECT window_start, window_end, COUNT(*) FROM " +
-                        "TABLE(TUMBLE(" +
-                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
-                        "  , DESCRIPTOR(tick)" +
-                        "  , 10" +
-                        ")) " +
-                        "GROUP BY window_start, window_end",
-                asList(
-                        new Row(0, 10, 10L)
-                )
-        );
+        // while loop with intervals
+        begin = System.currentTimeMillis();
+        List<Row> listOfExpectedRows = new ArrayList<>();
 
-        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(10, 10, 1, 2));
-        Thread.sleep(10000);
+        boolean isOdd=true;
 
-        assertTipOfStream(
-                "SELECT window_start, window_end, COUNT(*) FROM " +
-                        "TABLE(TUMBLE(" +
-                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
-                        "  , DESCRIPTOR(tick)" +
-                        "  , 10" +
-                        ")) " +
-                        "GROUP BY window_start, window_end",
-                asList(
-                        new Row(0, 10, 10L),
-                        new Row(10, 20, 11L)
-                )
-        );
+        while (System.currentTimeMillis() - begin < durationInMillis) {
 
-        sqlService.execute("INSERT INTO " + name + " VALUES" + TradeRecordProducer.produceTradeRecords(20, 10, 1, 2));
-        Thread.sleep(10000);
+            sqlService.execute("INSERT INTO " + name + " VALUES" +
+                    TradeRecordProducer.produceTradeRecords(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
 
-        assertTipOfStream(
-                "SELECT window_start, window_end, COUNT(*) FROM " +
-                        "TABLE(TUMBLE(" +
-                        "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), 2)))" +
-                        "  , DESCRIPTOR(tick)" +
-                        "  , 10" +
-                        ")) " +
-                        "GROUP BY window_start, window_end",
-                asList(
-                        new Row(0, 10, 10L),
-                        new Row(10, 20, 11L),
-                        new Row(20, 30, 11L)
-                )
-        );
+            // check that data are correct
+            String jobFromSourceToString =
+                    "SELECT window_start, window_end, COUNT(*) FROM " +
+                            "TABLE(TUMBLE(" +
+                            "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
+                            "  , DESCRIPTOR(tick)" +
+                            //  "  , 10" +
+                            " ," + EVENT_WINDOW_COUNT +
+                            ")) " +
+                            "GROUP BY window_start, window_end";
+
+            // need to assert this data
+            long expectedCount = (isOdd) ? 10 : 11;
+            listOfExpectedRows.add(new Row(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, expectedCount));
+
+            assertTipOfStream(jobFromSourceToString, listOfExpectedRows);
+            currentEventStartTime = currentEventStartTime + EVENT_WINDOW_COUNT;
+
+            Thread.sleep(2000);
+
+            isOdd = !isOdd;
+        }
     }
 
     @Test

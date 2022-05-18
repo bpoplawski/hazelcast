@@ -42,7 +42,7 @@ public class TradeRecordProducer {
         createSingleRecord(sb, j).append(",");
 
         // append late event
-        int k = j - 2*lagTime;
+        int k = j - lagTime-5;
         createSingleRecord(sb, k);
 
         return sb.toString();
