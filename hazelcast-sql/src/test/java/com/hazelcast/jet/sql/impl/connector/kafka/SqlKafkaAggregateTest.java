@@ -54,6 +54,9 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     private static SqlService sqlService;
 
+    private String source = "trades";
+    private String sink = "tradesink";
+
     @BeforeClass
     public static void setUpClass() throws IOException {
         initialize(1, null);
@@ -70,9 +73,10 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     @Test
     public void test_tumble() throws InterruptedException {
-        String name = "trades";
-        sqlService.execute("CREATE OR REPLACE MAPPING " + name + " ("
-                + "tick INT,"
+       // sqlService = client.getSql();
+
+        sqlService.execute("CREATE MAPPING " + source + " ("
+                + "tick BIGINT,"
                 + "ticker VARCHAR,"
                 + "price DECIMAL" + ") "
                 + "TYPE " + KafkaSqlConnector.TYPE_NAME + ' '
@@ -84,8 +88,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ")"
         );
 
-        String name2 = "tradesink";
-        sqlService.execute("CREATE OR REPLACE MAPPING " + name2 + " ("
+        sqlService.execute("CREATE OR REPLACE MAPPING " + sink + " ("
                 + "__key INT,"
                 + "windowsend INT,"
                 + "countsc INT"
@@ -97,19 +100,17 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ")"
         );
 
-        sqlService.execute("INSERT INTO " + name + " VALUES" +
-                TradeRecordProducer.produceTradeRecords(0, 0 + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
+        sqlService.execute("INSERT INTO " + source + " VALUES" +
+                TradeRecordProducer.produceTradeRecords(EVENT_START_TIME, EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
 
-        String jobFromSourceToString = "CREATE JOB myJob AS SINK INTO tradesink " +
-                "SELECT window_start, window_end, COUNT(*) FROM " +
+        String jobFromSourceToString = "CREATE JOB myJob AS SINK INTO " + sink +
+                " SELECT window_start, window_end, AVG(price) FROM " +
                 "TABLE(TUMBLE(" +
-                "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + name + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
+                "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + source + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
                 "  , DESCRIPTOR(tick)" +
-                //  "  , 10" +
                 " ," + EVENT_WINDOW_COUNT +
                 ")) " +
                 "GROUP BY window_start, window_end";
-
 
         sqlService.execute(jobFromSourceToString);
         Thread.sleep(5000);
@@ -126,7 +127,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         while (System.currentTimeMillis() - begin < durationInMillis) {
 
             currentEventStartTime = currentEventStartTime + EVENT_WINDOW_COUNT;
-            sqlService.execute("INSERT INTO " + name + " VALUES" +
+            sqlService.execute("INSERT INTO " + source + " VALUES" +
                     TradeRecordProducer.produceTradeRecords(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
 
             Thread.sleep(5000);
