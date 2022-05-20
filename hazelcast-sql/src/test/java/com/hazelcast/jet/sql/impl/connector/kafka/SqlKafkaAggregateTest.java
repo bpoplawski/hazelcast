@@ -20,7 +20,6 @@ import com.hazelcast.jet.kafka.impl.KafkaTestSupport;
 import com.hazelcast.jet.sql.SqlTestSupport;
 import com.hazelcast.jet.sql.impl.connector.map.IMapSqlConnector;
 import com.hazelcast.sql.SqlResult;
-import com.hazelcast.sql.SqlRow;
 import com.hazelcast.sql.SqlService;
 import com.hazelcast.test.HazelcastSerialClassRunner;
 import com.hazelcast.test.annotation.ParallelJVMTest;
@@ -32,11 +31,12 @@ import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.stream.IntStream;
 
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_KEY_FORMAT;
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_VALUE_FORMAT;
 import static java.util.Arrays.asList;
+import static org.junit.Assert.assertEquals;
 
 @RunWith(HazelcastSerialClassRunner.class)
 @Category({QuickTest.class, ParallelJVMTest.class})
@@ -54,8 +54,8 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     private static SqlService sqlService;
 
-    private String source = "trades";
-    private String sink = "tradesink";
+    private final static String SOURCE = "trades";
+    private final static String SINK = "tradesink";
 
     @BeforeClass
     public static void setUpClass() throws IOException {
@@ -73,9 +73,9 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
     @Test
     public void test_tumble() throws InterruptedException {
-       // sqlService = client.getSql();
+        // sqlService = client.getSql();
 
-        sqlService.execute("CREATE MAPPING " + source + " ("
+        sqlService.execute("CREATE MAPPING " + SOURCE + " ("
                 + "tick BIGINT,"
                 + "ticker VARCHAR,"
                 + "price DECIMAL" + ") "
@@ -88,7 +88,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ")"
         );
 
-        sqlService.execute("CREATE OR REPLACE MAPPING " + sink + " ("
+        sqlService.execute("CREATE OR REPLACE MAPPING " + SINK + " ("
                 + "__key INT,"
                 + "windowsend INT,"
                 + "countsc INT"
@@ -100,13 +100,14 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
                 + ")"
         );
 
-        sqlService.execute("INSERT INTO " + source + " VALUES" +
+        sqlService.execute("INSERT INTO " + SOURCE + " VALUES" +
                 TradeRecordProducer.produceTradeRecords(EVENT_START_TIME, EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
+        Thread.sleep(5000);
 
-        String jobFromSourceToString = "CREATE JOB myJob AS SINK INTO " + sink +
+        String jobFromSourceToString = "CREATE JOB myJob AS SINK INTO " + SINK +
                 " SELECT window_start, window_end, AVG(price) FROM " +
                 "TABLE(TUMBLE(" +
-                "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + source + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
+                "  (SELECT * FROM TABLE(IMPOSE_ORDER(TABLE " + SOURCE + ", DESCRIPTOR(tick), " + LAG_TIME + ")))" +
                 "  , DESCRIPTOR(tick)" +
                 " ," + EVENT_WINDOW_COUNT +
                 ")) " +
@@ -116,30 +117,30 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         Thread.sleep(5000);
 
         int currentEventStartTime = EVENT_START_TIME;
-        long durationInMillis = 20000;
+        long durationInMillis = 30000;
+
 
         // while loop with intervals
         begin = System.currentTimeMillis();
-        List<Row> listOfExpectedRows = new ArrayList<>();
-
-        Deque<Row> rows = new ArrayDeque<>();
+        //SqlResult result;
 
         while (System.currentTimeMillis() - begin < durationInMillis) {
-
             currentEventStartTime = currentEventStartTime + EVENT_WINDOW_COUNT;
-            sqlService.execute("INSERT INTO " + source + " VALUES" +
+
+            sqlService.execute("INSERT INTO " + SOURCE + " VALUES" +
                     TradeRecordProducer.produceTradeRecords(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
-
             Thread.sleep(5000);
-        }
 
-        try (SqlResult result = sqlService.execute("SELECT * FROM tradesink WHERE true;")) {
-            Iterator<SqlRow> iterator = result.iterator();
-            for (int i = 0; i < 10 && iterator.hasNext(); i++) {
-                rows.add(new Row(iterator.next()));
+            int currentEventEndTime = currentEventStartTime + EVENT_WINDOW_COUNT;
+            try (SqlResult result = sqlService.execute("SELECT countsc FROM " + SINK + " WHERE __key=" + currentEventStartTime + " AND windowsend=" + currentEventEndTime))  {
+                int actualAvgValue = result.iterator().next().getObject(0);
+                int expectedValue = (int) IntStream.range(currentEventStartTime, currentEventEndTime).average().getAsDouble();
+                assertEquals("The avg count over aggregate window does not match", expectedValue, actualAvgValue);
+                System.out.println("Matching for event time " + currentEventStartTime);
             }
         }
-        System.out.println("The rows are" + rows);
+
+
     }
 
     @Test
