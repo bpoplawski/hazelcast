@@ -31,6 +31,9 @@ import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.IntStream;
 
 import static com.hazelcast.jet.sql.impl.connector.SqlConnector.OPTION_KEY_FORMAT;
@@ -102,7 +105,7 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
 
         sqlService.execute("INSERT INTO " + SOURCE + " VALUES" +
                 TradeRecordProducer.produceTradeRecords(EVENT_START_TIME, EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
-        Thread.sleep(5000);
+        //Thread.sleep(5000);
 
         String jobFromSourceToString = "CREATE JOB myJob AS SINK INTO " + SINK +
                 " SELECT window_start, window_end, AVG(price) FROM " +
@@ -116,30 +119,56 @@ public class SqlKafkaAggregateTest extends SqlTestSupport {
         sqlService.execute(jobFromSourceToString);
         Thread.sleep(5000);
 
-        int currentEventStartTime = EVENT_START_TIME;
         long durationInMillis = 30000;
 
-
-        // while loop with intervals
+        // initiate counters
+        String sinkRowSqlQuery;
+        int currentEventStartTime = EVENT_START_TIME;
+        int currentEventEndTime;
         begin = System.currentTimeMillis();
-        //SqlResult result;
+
+        ExecutorService threadPool = Executors.newSingleThreadExecutor();
+
+
 
         while (System.currentTimeMillis() - begin < durationInMillis) {
+
+            // ingest data to Kafka using new timestamps
             currentEventStartTime = currentEventStartTime + EVENT_WINDOW_COUNT;
+            currentEventEndTime = currentEventStartTime + EVENT_WINDOW_COUNT;
+            sqlService.execute("INSERT INTO " + "trades" + " VALUES" +
+                    TradeRecordProducer.produceTradeRecords(currentEventStartTime, currentEventStartTime +
+                            EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
 
-            sqlService.execute("INSERT INTO " + SOURCE + " VALUES" +
-                    TradeRecordProducer.produceTradeRecords(currentEventStartTime, currentEventStartTime + EVENT_WINDOW_COUNT, EVENT_TIME_INTERVAL, LAG_TIME));
-            Thread.sleep(5000);
+            // timeout between queries to not stress out the cluster
+            Thread.sleep(100);
 
-            int currentEventEndTime = currentEventStartTime + EVENT_WINDOW_COUNT;
-            try (SqlResult result = sqlService.execute("SELECT countsc FROM " + SINK + " WHERE __key=" + currentEventStartTime + " AND windowsend=" + currentEventEndTime))  {
-                int actualAvgValue = result.iterator().next().getObject(0);
-                int expectedValue = (int) IntStream.range(currentEventStartTime, currentEventEndTime).average().getAsDouble();
-                assertEquals("The avg count over aggregate window does not match", expectedValue, actualAvgValue);
-                System.out.println("Matching for event time " + currentEventStartTime);
-            }
+            // prepare sink row query
+            sinkRowSqlQuery = "SELECT countsc FROM " + SINK + " WHERE __key=" + currentEventStartTime +
+                    " AND windowsend=" + currentEventEndTime;
+
+            // execute query with wait
+            SqlResultProcessor sqlResultProcessor = new SqlResultProcessor(sinkRowSqlQuery, sqlService, threadPool);
+            SqlResult sqlResult = null;
+            Future<SqlResult> sqlResultFuture = sqlResultProcessor.runQueryAsync();
+            sqlResult = sqlResultProcessor.awaitQueryExecutionWithTimeout(sqlResultFuture, 10);
+
+            // assert query successful
+            assertQuerySuccessful(sqlResult, currentEventStartTime, currentEventEndTime);
+
+            //currentQueryCount++;
+
+            // print progress
+            //printProgress();
         }
 
+    }
+
+    private void assertQuerySuccessful(SqlResult actualSqlResult, int currentEventStartTime, int currentEventEndTime) {
+        int actualAvgValue = actualSqlResult.iterator().next().getObject(0);
+        int expectedValue = (int) IntStream.range(currentEventStartTime, currentEventEndTime).average().getAsDouble();
+        assertEquals("The avg count over aggregate window does not match", expectedValue, actualAvgValue);
+        System.out.println("Matching for event time " + currentEventStartTime);
 
     }
 
